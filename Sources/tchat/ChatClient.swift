@@ -18,7 +18,11 @@ final class ChatClient: @unchecked Sendable {
     
     func start() {
         // Create socket
+        #if canImport(Darwin)
+        clientSocket = socket(AF_INET, SOCK_STREAM, 0)
+        #else
         clientSocket = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #endif
         guard clientSocket >= 0 else {
             print("Failed to create socket")
             return
