@@ -26,7 +26,10 @@ final class ChatServer: @unchecked Sendable {
         
         // Set socket options to reuse address
         var reuseAddr: Int32 = 1
-        setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, socklen_t(MemoryLayout<Int32>.size))
+        let optResult = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &reuseAddr, socklen_t(MemoryLayout<Int32>.size))
+        if optResult < 0 {
+            print("Warning: Failed to set SO_REUSEADDR option")
+        }
         
         // Bind socket
         var serverAddress = sockaddr_in()

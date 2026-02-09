@@ -102,7 +102,7 @@ final class ChatClient: @unchecked Sendable {
                 continue
             }
             
-            let trimmedInput = input.trimmingCharacters(in: .whitespaces)
+            let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // Check for exit command
             if trimmedInput.lowercased() == "/quit" || trimmedInput.lowercased() == "/exit" {
