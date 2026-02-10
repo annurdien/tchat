@@ -2,18 +2,21 @@ import Foundation
 
 actor ChatHost {
     private let config: Configuration
+    private let requireAuth: Bool
     private var server: ChatServer?
     private var client: ChatClient?
     
-    init(port: UInt16) {
+    init(port: UInt16, requireAuth: Bool = false) {
         self.config = .with(port: port)
+        self.requireAuth = requireAuth
     }
     
     func start() async throws {
         print("Starting tchat in host mode on port \(config.server.port)...")
         
         
-        let server = ChatServer(config: config.server)
+        let security = SecurityConfig(requireAuth: requireAuth)
+        let server = ChatServer(config: config.server, security: security)
         self.server = server
         
         Task {

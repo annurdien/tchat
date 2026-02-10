@@ -7,14 +7,18 @@ import Darwin
 
 actor ChatServer {
     private let config: ServerConfig
+    private let security: SecurityConfig
+    private let authManager: AuthManager
     private var users: [UUID: User] = [:]
     private var connections: [UUID: ConnectionHandler] = [:]
     private var clientTasks: [UUID: Task<Void, Never>] = [:]
     private var isRunning = false
     private var serverSocket: Int32 = -1
     
-    init(config: ServerConfig = .default) {
+    init(config: ServerConfig = .default, security: SecurityConfig = .default) {
         self.config = config
+        self.security = security
+        self.authManager = AuthManager()
     }
     
     func start() async throws {
@@ -71,7 +75,8 @@ actor ChatServer {
         }
         
         isRunning = true
-        print("✓ Server is listening on port \(config.port)")
+        let authStatus = security.requireAuth ? "with authentication" : "without authentication"
+        print("✓ Server is listening on port \(config.port) (\(authStatus))")
         print("Waiting for clients to connect...")
         
         await acceptConnections()
@@ -118,7 +123,7 @@ actor ChatServer {
     }
     
     private func handleClient(socket: Int32, userId: UUID) async {
-        let handler = ConnectionHandler(socket: socket, server: self, userId: userId)
+        let handler = ConnectionHandler(socket: socket, server: self, userId: userId, security: security, authManager: authManager)
         
         do {
             try await handler.run()
@@ -194,11 +199,16 @@ actor ConnectionHandler {
     let userId: UUID
     private var user: User?
     private var buffer = Data()
+    private let security: SecurityConfig
+    private let authManager: AuthManager
+    private var authToken: String?
     
-    init(socket: Int32, server: ChatServer, userId: UUID) {
+    init(socket: Int32, server: ChatServer, userId: UUID, security: SecurityConfig, authManager: AuthManager) {
         self.socket = socket
         self.server = server
         self.userId = userId
+        self.security = security
+        self.authManager = authManager
     }
     
     func run() async throws {
@@ -206,6 +216,16 @@ actor ConnectionHandler {
             close(socket)
         }
         
+        // Send auth mode to client
+        let authMsg = Message.authRequired(security.requireAuth)
+        try await send(authMsg)
+        
+        // Handle authentication if required
+        if security.requireAuth {
+            try await handleAuthentication()
+        }
+        
+        // Proceed with username and chat
         let welcomeMsg = Message(type: .chat, content: "Welcome to tchat! Please enter your username: ")
         try await send(welcomeMsg)
         
@@ -235,6 +255,58 @@ actor ConnectionHandler {
                !content.isEmpty {
                 let chatMsg = Message.chat(username: username, content: content)
                 await server?.broadcast(chatMsg, excluding: userId)
+            }
+        }
+    }
+    
+    private func handleAuthentication() async throws {
+        while true {
+            guard let message = try await readMessage() else {
+                throw ChatError.disconnected
+            }
+            
+            switch message.type {
+            case .register:
+                guard let content = message.content,
+                      let credentials = try? JSONDecoder().decode(Credentials.self, from: Data(content.utf8)) else {
+                    let errorMsg = Message.authFailed(reason: "Invalid credentials format")
+                    try await send(errorMsg)
+                    continue
+                }
+                
+                do {
+                    let token = try await authManager.register(username: credentials.username, password: credentials.password)
+                    authToken = token.token
+                    let successMsg = Message.authenticated(username: credentials.username, token: token.token)
+                    try await send(successMsg)
+                    return
+                } catch {
+                    let errorMsg = Message.authFailed(reason: error.localizedDescription)
+                    try await send(errorMsg)
+                }
+                
+            case .login:
+                guard let content = message.content,
+                      let credentials = try? JSONDecoder().decode(Credentials.self, from: Data(content.utf8)) else {
+                    let errorMsg = Message.authFailed(reason: "Invalid credentials format")
+                    try await send(errorMsg)
+                    continue
+                }
+                
+                do {
+                    let token = try await authManager.login(username: credentials.username, password: credentials.password)
+                    authToken = token.token
+                    let successMsg = Message.authenticated(username: credentials.username, token: token.token)
+                    try await send(successMsg)
+                    return
+                } catch {
+                    let errorMsg = Message.authFailed(reason: error.localizedDescription)
+                    try await send(errorMsg)
+                }
+                
+            default:
+                let errorMsg = Message.authFailed(reason: "Please login or register first")
+                try await send(errorMsg)
             }
         }
     }

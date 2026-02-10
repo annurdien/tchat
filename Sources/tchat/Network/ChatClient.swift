@@ -12,6 +12,7 @@ actor ChatClient {
     private var buffer = Data()
     private var receiveTask: Task<Void, Never>?
     private var username: String?
+    private var messageQueue: [Message] = []
     
     init(config: ClientConfig = .default) {
         self.config = config
@@ -104,7 +105,12 @@ actor ChatClient {
                     break
                 }
                 
-                handleMessage(message)
+                // Queue auth-related messages for synchronous waiting
+                if message.type == .authRequired || message.type == .authenticated || message.type == .authFailed {
+                    messageQueue.append(message)
+                } else {
+                    handleMessage(message)
+                }
             } catch {
                 print("✗ Error receiving message: \(error.localizedDescription)")
                 break
@@ -198,6 +204,67 @@ actor ChatClient {
         
         try await Task.sleep(for: .milliseconds(500))
         
+        // Wait for auth mode message from server
+        guard let authModeMsg = await receiveAuthMode() else {
+            print("✗ Failed to receive auth mode from server")
+            await disconnect()
+            return
+        }
+        
+        let authRequired = authModeMsg.content == "true"
+        
+        // Handle authentication if required
+        if authRequired {
+            print("\n🔐 This server requires authentication")
+            print("Would you like to (1) Login or (2) Register?")
+            guard let choice = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                await disconnect()
+                return
+            }
+            
+            print("Username: ", terminator: "")
+            guard let username = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !username.isEmpty else {
+                print("✗ Invalid username")
+                await disconnect()
+                return
+            }
+            
+            print("Password: ", terminator: "")
+            guard let password = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !password.isEmpty else {
+                print("✗ Invalid password")
+                await disconnect()
+                return
+            }
+            
+            let authMsg: Message
+            if choice == "1" || choice.lowercased().hasPrefix("l") {
+                authMsg = Message.login(username: username, password: password)
+            } else {
+                authMsg = Message.register(username: username, password: password)
+            }
+            
+            try await send(authMsg)
+            
+            // Wait for auth response
+            guard let authResponse = await receiveAuthResponse() else {
+                print("✗ Authentication failed - no response")
+                await disconnect()
+                return
+            }
+            
+            if authResponse.type == .authenticated {
+                print("✓ Authentication successful!")
+                await setUsername(username)
+            } else {
+                print("✗ Authentication failed: \(authResponse.content ?? "Unknown error")")
+                await disconnect()
+                return
+            }
+        }
+        
+        print("Username: ", terminator: "")
         guard let input = readLine() else {
             await disconnect()
             return
@@ -223,6 +290,30 @@ actor ChatClient {
         }
         
         await disconnect()
+    }
+    
+    private func receiveAuthMode() async -> Message? {
+        // Wait for authRequired message
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if let msg = messageQueue.first(where: { $0.type == .authRequired }) {
+                messageQueue.removeAll(where: { $0.type == .authRequired })
+                return msg
+            }
+        }
+        return nil
+    }
+    
+    private func receiveAuthResponse() async -> Message? {
+        // Wait for authenticated or authFailed message
+        for _ in 0..<50 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if let msg = messageQueue.first(where: { $0.type == .authenticated || $0.type == .authFailed }) {
+                messageQueue.removeAll(where: { $0.type == .authenticated || $0.type == .authFailed })
+                return msg
+            }
+        }
+        return nil
     }
     
     func setUsername(_ name: String) {

@@ -186,6 +186,12 @@ Or specify a custom port:
 make run-server-port PORT=9000
 ```
 
+**With password authentication:**
+
+```bash
+swift run tchat server --auth 9000
+```
+
 #### Connecting as a Client
 
 Connect to a server running on localhost:
@@ -216,6 +222,12 @@ Or specify a custom port:
 swift run tchat host 9000
 ```
 
+**With password authentication:**
+
+```bash
+swift run tchat host --auth 9000
+```
+
 #### Starting the Server
 
 Start a chat server on the default port (8080):
@@ -228,6 +240,12 @@ Or specify a custom port:
 
 ```bash
 swift run tchat server 9000
+```
+
+**With password authentication:**
+
+```bash
+swift run tchat server --auth 9000
 ```
 
 #### Connecting as a Client
@@ -246,10 +264,19 @@ swift run tchat client localhost 9000
 
 ### Chatting
 
+**Without Authentication:**
 1. When you connect as a client, you'll be prompted to enter your username
 2. After entering your username, you can start typing messages
 3. All messages are broadcast to other connected clients
 4. To disconnect, type `/quit` or `/exit`
+
+**With Authentication:**
+1. When you connect to a server with authentication enabled, you'll first see:
+   - Prompt to choose Login (1) or Register (2)
+   - Username prompt
+   - Password prompt
+2. After successful authentication, proceed as normal with chat
+3. To disconnect, type `/quit` or `/exit`
 
 ## Installation
 
@@ -284,20 +311,39 @@ TCHAT_PORT=9000 TCHAT_MAX_CONNECTIONS=50 TCHAT_REQUIRE_AUTH=true tchat server
 
 ### Authentication (Optional)
 
-Enable authentication to require users to register/login:
+tchat supports optional password authentication. You can choose to run with or without authentication:
+
+**Using command-line flag:**
 
 ```bash
-TCHAT_REQUIRE_AUTH=true tchat server
+# Server with authentication
+swift run tchat server --auth 9000
 
-# or programmatically
-let config = Configuration.withAuth(port: 8080)
+# Host mode with authentication
+swift run tchat host --auth 9000
 ```
 
-Features:
+**Using environment variable:**
+
+```bash
+TCHAT_REQUIRE_AUTH=true tchat server 9000
+```
+
+**Authentication Features:**
+- **Auto-detection**: Client automatically detects if server requires authentication
 - **Password Hashing**: SHA256 with salt and pepper
 - **Token-based Auth**: 24-hour token expiration
 - **User Registration**: Create accounts with username + password
 - **Login/Logout**: Session management
+
+**Client Experience:**
+
+When connecting to an authenticated server, clients will be prompted for:
+1. Login (1) or Register (2)
+2. Username
+3. Password
+
+After successful authentication, chat proceeds normally.
 
 ### Input Validation
 
@@ -343,12 +389,59 @@ Hello everyone!
 **Terminal 3 (Client 2):**
 ```bash
 $ make run-client-custom HOST=localhost PORT=9000
-Connecting to localhost:9000...
+Connecting to localhost:9000..
+.
 ✓ Connected to server at localhost:9000
 Welcome to tchat! Please enter your username: Bob
 You are now connected as 'Bob'. Start chatting!
 [Alice]: Hello everyone!
 Hi Alice!
+```
+
+### With Password Authentication
+
+**Terminal 1 (Server with Auth):**
+```bash
+$ swift run tchat server --auth 9000
+Starting tchat server on port 9000...
+✓ Server is listening on port 9000 (with authentication)
+Waiting for clients to connect...
+✓ User 'Alice' joined the chat
+[Alice]: Secure chat is working!
+```
+
+**Terminal 2 (Client - Register):**
+```bash
+$ swift run tchat client localhost 9000
+Connecting to localhost:9000...
+✓ Connected to server at localhost:9000
+
+🔐 This server requires authentication
+Would you like to (1) Login or (2) Register?
+2
+Username: Alice
+Password: mypassword123
+✓ Authentication successful!
+Username: Alice
+Welcome to tchat! Please enter your username: 
+You are now connected as 'Alice'. Start chatting!
+Secure chat is working!
+*** Bob joined the chat ***
+[Bob]: Hello Alice!
+```
+
+**Terminal 3 (Client - Login):**
+```bash
+$ swift run tchat client localhost 9000
+Connecting to localhost:9000...
+✓ Connected to server at localhost:9000
+
+🔐 This server requires authentication
+Would you like to (1) Login or (2) Register?
+1
+Username: Alice
+Password: wrongpassword
+✗ Authentication failed: Authentication failed
 ```
 
 ## CI/CD

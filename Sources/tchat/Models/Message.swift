@@ -14,6 +14,7 @@ enum MessageType: UInt8, Codable {
     case authenticated = 12
     case authFailed = 13
     case rateLimited = 14
+    case authRequired = 15
 }
 
 struct Message: Codable, Sendable {
@@ -121,5 +122,9 @@ extension Message {
     
     static func pong() -> Message {
         Message(type: .pong)
+    }
+    
+    static func authRequired(_ required: Bool) -> Message {
+        Message(type: .authRequired, content: required ? "true" : "false")
     }
 }
