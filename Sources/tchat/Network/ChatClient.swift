@@ -52,7 +52,11 @@ actor ChatClient {
         
         let connectResult = withUnsafePointer(to: &serverAddress) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                #if canImport(Darwin)
                 Darwin.connect(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #elseif canImport(Glibc)
+                Glibc.connect(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #endif
             }
         }
         
@@ -85,7 +89,11 @@ actor ChatClient {
         
         while remaining > 0 {
             let sent = data.withUnsafeBytes { bytes in
+                #if canImport(Darwin)
                 Darwin.send(socket, bytes.baseAddress!.advanced(by: offset), remaining, 0)
+                #elseif canImport(Glibc)
+                Glibc.send(socket, bytes.baseAddress!.advanced(by: offset), remaining, 0)
+                #endif
             }
             
             guard sent > 0 else {

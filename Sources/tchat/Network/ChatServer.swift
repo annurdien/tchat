@@ -319,7 +319,11 @@ actor ConnectionHandler {
         
         while remaining > 0 {
             let sent = data.withUnsafeBytes { bytes in
+                #if canImport(Darwin)
                 Darwin.send(socket, bytes.baseAddress!.advanced(by: offset), remaining, 0)
+                #elseif canImport(Glibc)
+                Glibc.send(socket, bytes.baseAddress!.advanced(by: offset), remaining, 0)
+                #endif
             }
             
             guard sent > 0 else {
