@@ -1,4 +1,4 @@
-.PHONY: all build run-server run-client clean install test help
+.PHONY: all build run-server run-host run-client clean install test help
 
 # Default target
 all: build
@@ -20,6 +20,14 @@ run-server:
 # Run server on custom port (usage: make run-server PORT=9000)
 run-server-port:
 	@swift run tchat server $(PORT)
+
+# Run in host mode on default port (8080)
+run-host:
+	@swift run tchat host
+
+# Run in host mode on custom port (usage: make run-host-port PORT=9000)
+run-host-port:
+	@swift run tchat host $(PORT)
 
 # Run client connecting to localhost (usage: make run-client)
 run-client:
@@ -53,6 +61,8 @@ help:
 	@echo "  make build-release      - Build the project (release mode)"
 	@echo "  make run-server         - Run server on default port (8080)"
 	@echo "  make run-server-port PORT=<port> - Run server on custom port"
+	@echo "  make run-host           - Run in host mode on default port (8080)"
+	@echo "  make run-host-port PORT=<port> - Run in host mode on custom port"
 	@echo "  make run-client         - Run client connecting to localhost:8080"
 	@echo "  make run-client-custom HOST=<host> PORT=<port> - Run client with custom settings"
 	@echo "  make clean              - Clean build artifacts"
@@ -62,4 +72,5 @@ help:
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run-server-port PORT=9000"
+	@echo "  make run-host-port PORT=9000"
 	@echo "  make run-client-custom HOST=192.168.1.100 PORT=9000"

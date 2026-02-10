@@ -6,11 +6,20 @@ A terminal-based TCP chat application written in Swift!
 
 ## Features
 
-- Simple and lightweight TCP chat server and client
+- **Modern Swift Concurrency**: Built with actors and async/await for thread-safe, concurrent operations
+- **Robust Message Protocol**: Length-prefixed framing with JSON encoding
+- **Production-Ready Error Handling**: Custom error types, timeouts, and proper resource cleanup
+- **Authentication System**: Token-based authentication with secure password hashing (SHA256)
+- **Input Validation**: Comprehensive username, message, and password validation with sanitization
+- **Rate Limiting**: Token bucket algorithm to prevent spam (10 msg/sec per user)
+- **Configuration Management**: Environment variable support and validation
+- **Host mode**: Act as both server and client simultaneously
 - Multi-client support with real-time message broadcasting
 - User authentication with custom usernames
+- Connection limits and timeout handling
 - Terminal-based interface
 - Cross-platform support (Linux and macOS)
+- Comprehensive test suite (29 tests)
 - Easy to build and run with Makefile
 
 ## Requirements
@@ -54,6 +63,20 @@ swift build -c release
 
 ### Using Makefile
 
+#### Host Mode (Recommended for Quick Start)
+
+Start in host mode (acts as both server and client) on the default port (8080):
+
+```bash
+make run-host
+```
+
+Or specify a custom port:
+
+```bash
+make run-host-port PORT=9000
+```
+
 #### Starting the Server
 
 Start a chat server on the default port (8080):
@@ -83,6 +106,20 @@ make run-client-custom HOST=192.168.1.100 PORT=9000
 ```
 
 ### Using Swift Run
+
+#### Host Mode (Recommended for Quick Start)
+
+Start in host mode on the default port (8080):
+
+```bash
+swift run tchat host
+```
+
+Or specify a custom port:
+
+```bash
+swift run tchat host 9000
+```
 
 #### Starting the Server
 
@@ -133,6 +170,96 @@ This will install the binary to `/usr/local/bin/tchat`, allowing you to run it f
 tchat server 9000
 tchat client localhost 9000
 ```
+
+## Architecture
+
+### Modern Swift Concurrency
+
+tchat is built with Swift's modern concurrency features:
+- **Actors**: `ChatServer` and `ChatClient` are actors for thread-safe state management
+- **Async/Await**: All I/O operations use async/await for better performance
+- **Structured Concurrency**: Task groups for managing concurrent connections
+
+### Message Protocol
+
+Messages use length-prefixed framing:
+```
+[4 bytes: message length][JSON payload]
+```
+
+Message types:
+- `join`: User joining
+- `leave`: User leaving  
+- `chat`: Regular chat message
+- `userJoined`/`userLeft`: Notifications
+- `error`: Error messages
+- `ping`/`pong`: Keepalive
+
+### Code Structure
+
+```
+Sources/tchat/
+├── Models/           # Data models and protocol
+│   ├── Message.swift
+│   ├── User.swift
+│   └── ChatError.swift
+├── Network/          # Actor-based networking
+│   ├── ChatServer.swift
+│   └── ChatClient.swift
+├── Config/           # Configuration management
+│   └── Configuration.swift
+├── ChatHost.swift
+└── main.swift
+```
+
+## Configuration
+
+### Environment Variables
+
+- `TCHAT_PORT`: Default server port (default: 8080)
+- `TCHAT_HOST`: Bind address (default: 0.0.0.0)
+- `TCHAT_MAX_CONNECTIONS`: Maximum concurrent connections (default: 100)
+- `TCHAT_REQUIRE_AUTH`: Enable authentication (default: false)
+
+Example:
+```bash
+TCHAT_PORT=9000 TCHAT_MAX_CONNECTIONS=50 TCHAT_REQUIRE_AUTH=true tchat server
+```
+
+## Security Features
+
+### Authentication (Optional)
+
+Enable authentication to require users to register/login:
+
+```bash
+TCHAT_REQUIRE_AUTH=true tchat server
+
+# or programmatically
+let config = Configuration.withAuth(port: 8080)
+```
+
+Features:
+- **Password Hashing**: SHA256 with salt and pepper
+- **Token-based Auth**: 24-hour token expiration
+- **User Registration**: Create accounts with username + password
+- **Login/Logout**: Session management
+
+### Input Validation
+
+All user input is validated:
+- **Usernames**: 3-20 chars, alphanumeric + underscore/hyphen
+- **Messages**: Max 2000 chars, control characters filtered
+- **Passwords**: 6-128 characters
+
+### Rate Limiting
+
+Token bucket algorithm prevents spam:
+- **10 messages/second** per user (burst: 15)
+- **100 messages/minute** per user
+- **5 connection attempts/minute** per IP
+
+Rate-limited users receive `rateLimited` messages.
 
 ## Example Session
 
