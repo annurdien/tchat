@@ -9,6 +9,7 @@ actor ChatServer {
     private let config: ServerConfig
     private var users: [UUID: User] = [:]
     private var connections: [UUID: ConnectionHandler] = [:]
+    private var clientTasks: [UUID: Task<Void, Never>] = [:]
     private var isRunning = false
     private var serverSocket: Int32 = -1
     
@@ -30,6 +31,10 @@ actor ChatServer {
         guard serverSocket >= 0 else {
             throw ChatError.socketError("Failed to create socket")
         }
+        
+        var flags = fcntl(serverSocket, F_GETFL, 0)
+        flags |= O_NONBLOCK
+        fcntl(serverSocket, F_SETFL, flags)
         
         var reuseAddr: Int32 = 1
         let optResult = setsockopt(
@@ -74,20 +79,27 @@ actor ChatServer {
     
     private func acceptConnections() async {
         while isRunning {
-            await Task.yield()
-            
-            var clientAddress = sockaddr_in()
-            var clientAddressLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-            
-            let clientSocket = withUnsafeMutablePointer(to: &clientAddress) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    accept(serverSocket, $0, &clientAddressLen)
+            let clientSocket = await Task {
+                var clientAddress = sockaddr_in()
+                var clientAddressLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+                
+                return withUnsafeMutablePointer(to: &clientAddress) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        accept(serverSocket, $0, &clientAddressLen)
+                    }
                 }
-            }
+            }.value
             
             guard clientSocket >= 0 else {
+                if isRunning {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
                 continue
             }
+            
+            var flags = fcntl(clientSocket, F_GETFL, 0)
+            flags |= O_NONBLOCK
+            fcntl(clientSocket, F_SETFL, flags)
             
             if connections.count >= config.maxConnections {
                 print("⚠️ Max connections reached, rejecting client")
@@ -97,14 +109,15 @@ actor ChatServer {
             
             print("✓ Client connected from socket \(clientSocket)")
             
-            Task {
-                await handleClient(socket: clientSocket)
+            let userId = UUID()
+            let task = Task {
+                await handleClient(socket: clientSocket, userId: userId)
             }
+            clientTasks[userId] = task
         }
     }
     
-    private func handleClient(socket: Int32) async {
-        let userId = UUID()
+    private func handleClient(socket: Int32, userId: UUID) async {
         let handler = ConnectionHandler(socket: socket, server: self, userId: userId)
         
         do {
@@ -114,6 +127,7 @@ actor ChatServer {
         }
         
         await removeConnection(userId: userId)
+        clientTasks.removeValue(forKey: userId)
     }
     
     func registerUser(_ user: User, handler: ConnectionHandler) async throws {
@@ -204,7 +218,7 @@ actor ConnectionHandler {
             throw ChatError.invalidMessage
         }
         
-        let user = User(username: username)
+        let user = User(id: userId, username: username, connectedAt: Date())
         self.user = user
         
         try await server?.registerUser(user, handler: self)
@@ -220,7 +234,6 @@ actor ConnectionHandler {
             if let content = message.content?.trimmingCharacters(in: .whitespacesAndNewlines),
                !content.isEmpty {
                 let chatMsg = Message.chat(username: username, content: content)
-                print("[\(username)]: \(content)")
                 await server?.broadcast(chatMsg, excluding: userId)
             }
         }
@@ -256,15 +269,26 @@ actor ConnectionHandler {
                 return try Message.decode(from: messageData)
             }
             
-            var readBuffer = [UInt8](repeating: 0, count: 4096)
-            let bytesRead = recv(socket, &readBuffer, readBuffer.count, 0)
+            let (bytesRead, readData) = await Task { () -> (Int, [UInt8]) in
+                var readBuffer = [UInt8](repeating: 0, count: 4096)
+                let bytes = recv(socket, &readBuffer, readBuffer.count, 0)
+                return (bytes, readBuffer)
+            }.value
             
-            guard bytesRead > 0 else {
-                
+            if bytesRead < 0 {
+                let err = errno
+                if err == EAGAIN || err == EWOULDBLOCK {
+                    try? await Task.sleep(for: .milliseconds(10))
+                    continue
+                }
                 return nil
             }
             
-            buffer.append(contentsOf: readBuffer[0..<bytesRead])
+            guard bytesRead > 0 else {
+                return nil
+            }
+            
+            buffer.append(contentsOf: readData[0..<bytesRead])
         }
     }
 }

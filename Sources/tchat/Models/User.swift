@@ -5,10 +5,10 @@ struct User: Sendable {
     let username: String
     let connectedAt: Date
     
-    init(username: String) {
-        self.id = UUID()
+    init(id: UUID = UUID(), username: String, connectedAt: Date = Date()) {
+        self.id = id
         self.username = username
-        self.connectedAt = Date()
+        self.connectedAt = connectedAt
     }
 }
 

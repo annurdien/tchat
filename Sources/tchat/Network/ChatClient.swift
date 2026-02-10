@@ -11,6 +11,7 @@ actor ChatClient {
     private var isConnected = false
     private var buffer = Data()
     private var receiveTask: Task<Void, Never>?
+    private var username: String?
     
     init(config: ClientConfig = .default) {
         self.config = config
@@ -59,6 +60,10 @@ actor ChatClient {
             throw ChatError.connectionFailed("Failed to connect to \(host):\(port)")
         }
         
+        var flags = fcntl(socket, F_GETFL, 0)
+        flags |= O_NONBLOCK
+        fcntl(socket, F_SETFL, flags)
+        
         isConnected = true
         print("✓ Connected to server at \(host):\(port)")
         
@@ -99,7 +104,7 @@ actor ChatClient {
                     break
                 }
                 
-                await handleMessage(message)
+                handleMessage(message)
             } catch {
                 print("✗ Error receiving message: \(error.localizedDescription)")
                 break
@@ -125,6 +130,15 @@ actor ChatClient {
             var readBuffer = [UInt8](repeating: 0, count: 4096)
             let bytesRead = recv(socket, &readBuffer, readBuffer.count, 0)
             
+            if bytesRead < 0 {
+                let err = errno
+                if err == EAGAIN || err == EWOULDBLOCK {
+                    try? await Task.sleep(for: .milliseconds(10))
+                    continue
+                }
+                throw ChatError.socketError("recv failed")
+            }
+            
             guard bytesRead > 0 else {
                 
                 return nil
@@ -134,12 +148,13 @@ actor ChatClient {
         }
     }
     
-    private func handleMessage(_ message: Message) async {
-        
+    nonisolated private func handleMessage(_ message: Message) {
         if let content = message.content {
-            
-            print("\r\u{001B}[K\(content)", terminator: "")
-            fflush(stdout)
+            if let username = message.username {
+                print("[\(username)]: \(content)")
+            } else {
+                print(content)
+            }
         }
     }
     
@@ -156,8 +171,12 @@ actor ChatClient {
             return
         }
         
-        let message = Message.chat(username: "", content: trimmedInput)
+        let message = Message(type: .chat, content: trimmedInput)
         try await send(message)
+        
+        if let username = username {
+            print("[\(username)]: \(trimmedInput)")
+        }
     }
     
     func disconnect() async {
@@ -174,10 +193,23 @@ actor ChatClient {
         buffer = Data()
     }
     
-    func run(host: String, port: UInt16) async throws {
+    nonisolated func run(host: String, port: UInt16) async throws {
         try await connect(to: host, port: port)
         
-        while isConnected {
+        try await Task.sleep(for: .milliseconds(500))
+        
+        guard let input = readLine() else {
+            await disconnect()
+            return
+        }
+        
+        await setUsername(input)
+        
+        let usernameMsg = Message(type: .chat, content: input)
+        try await send(usernameMsg)
+        
+        try await Task.sleep(for: .milliseconds(500))
+        while await isConnected {
             guard let input = readLine() else {
                 break
             }
@@ -191,5 +223,13 @@ actor ChatClient {
         }
         
         await disconnect()
+    }
+    
+    func setUsername(_ name: String) {
+        username = name
+    }
+    
+    func getUsername() -> String? {
+        return username
     }
 }
