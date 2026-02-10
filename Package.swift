@@ -8,9 +8,22 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    products: [
+        .executable(name: "tchat", targets: ["tchat"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
+    ],
     targets: [
         .executableTarget(
-            name: "tchat"
+            name: "tchat",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto")
+            ],
+            linkerSettings: [
+                .linkedLibrary("ssl", .when(platforms: [.linux])),
+                .linkedLibrary("crypto", .when(platforms: [.linux]))
+            ]
         ),
         .testTarget(
             name: "tchatTests",
