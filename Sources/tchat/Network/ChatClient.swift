@@ -175,7 +175,7 @@ actor ChatClient {
         try await send(message)
         
         if let username = username {
-            print("[\(username)]: \(trimmedInput)")
+            print("\u{001B}[1A\u{001B}[2K[\(username)]: \(trimmedInput)")
         }
     }
     

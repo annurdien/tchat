@@ -22,7 +22,102 @@ A terminal-based TCP chat application written in Swift!
 - Comprehensive test suite (29 tests)
 - Easy to build and run with Makefile
 
+## Architecture
+
+### System Design
+
+tchat uses a client-server architecture with Swift's modern concurrency features:
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Client A  │         │   Client B  │         │   Client C  │
+│ (ChatClient)│         │ (ChatClient)│         │ (ChatClient)│
+└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+       │                       │                       │
+       │ TCP Socket            │ TCP Socket            │ TCP Socket
+       │                       │                       │
+       └───────────────────────┼───────────────────────┘
+                               │
+                      ┌────────▼────────┐
+                      │   ChatServer    │
+                      │    (Actor)      │
+                      │                 │
+                      │ ┌─────────────┐ │
+                      │ │ConnectionMgr│ │
+                      │ └─────────────┘ │
+                      │ ┌─────────────┐ │
+                      │ │  Broadcast  │ │
+                      │ └─────────────┘ │
+                      └─────────────────┘
+```
+
+### Concurrency Model
+
+Built on Swift 6's structured concurrency:
+
+**ChatServer (Actor)**
+- Thread-safe connection management
+- Isolated mutable state (users, connections)
+- Async message broadcasting
+
+**ChatClient (Actor)**
+- Non-blocking socket I/O
+- Concurrent message sending/receiving
+- Actor-isolated buffer management
+
+**ConnectionHandler (Actor)**
+- Per-connection state isolation
+- Async message reading/writing
+- Automatic resource cleanup via defer
+
+### Message Protocol
+
+Length-prefixed JSON framing ensures reliable message delivery:
+
+```
+┌─────────────┬──────────────────┐
+│  4 bytes    │   N bytes        │
+│  Length     │   JSON Payload   │
+│ (Big-endian)│                  │
+└─────────────┴──────────────────┘
+```
+
+**Message Types:**
+- `chat` - User messages with username and content
+- `userJoined` - Broadcast when user connects
+- `userLeft` - Broadcast when user disconnects
+
+### Non-Blocking Sockets
+
+All sockets use `fcntl(O_NONBLOCK)` to prevent blocking the async executor:
+
+```swift
+var flags = fcntl(socket, F_GETFL, 0)
+flags |= O_NONBLOCK
+fcntl(socket, F_SETFL, flags)
+```
+
+EAGAIN/EWOULDBLOCK handled with async retry loops.
+
+### Key Components
+
+**Models**
+- `Message` - Protocol messages with type, username, content
+- `User` - User metadata (id, username, timestamp)
+- `ServerConfig` / `ClientConfig` - Configuration with defaults
+
+**Network**
+- `ChatServer` - Main server actor managing connections
+- `ChatClient` - Client actor for sending/receiving
+- `ConnectionHandler` - Per-connection message processing
+
+**Security**
+- Input validation for usernames and messages
+- Rate limiting (10 msg/sec per user)
+- SHA256 password hashing (auth system)
+
 ## Requirements
+
 
 - Swift 6.0 or later
 - Linux or macOS
@@ -169,47 +264,6 @@ This will install the binary to `/usr/local/bin/tchat`, allowing you to run it f
 ```bash
 tchat server 9000
 tchat client localhost 9000
-```
-
-## Architecture
-
-### Modern Swift Concurrency
-
-tchat is built with Swift's modern concurrency features:
-- **Actors**: `ChatServer` and `ChatClient` are actors for thread-safe state management
-- **Async/Await**: All I/O operations use async/await for better performance
-- **Structured Concurrency**: Task groups for managing concurrent connections
-
-### Message Protocol
-
-Messages use length-prefixed framing:
-```
-[4 bytes: message length][JSON payload]
-```
-
-Message types:
-- `join`: User joining
-- `leave`: User leaving  
-- `chat`: Regular chat message
-- `userJoined`/`userLeft`: Notifications
-- `error`: Error messages
-- `ping`/`pong`: Keepalive
-
-### Code Structure
-
-```
-Sources/tchat/
-├── Models/           # Data models and protocol
-│   ├── Message.swift
-│   ├── User.swift
-│   └── ChatError.swift
-├── Network/          # Actor-based networking
-│   ├── ChatServer.swift
-│   └── ChatClient.swift
-├── Config/           # Configuration management
-│   └── Configuration.swift
-├── ChatHost.swift
-└── main.swift
 ```
 
 ## Configuration
